@@ -8,7 +8,7 @@
 
 ## 一个烂人
 
-SayASM 是一款使用PYTHON3.11所编写的汇编IDE
+SaYASM 是一款使用PYTHON3.11所编写的汇编IDE
 
 ![IMG_20250519_203713-c9a3d4bd89c9b4e3ecc8c5817d9c519e.png](https://t.tutu.to/img/NY4cw)
 
