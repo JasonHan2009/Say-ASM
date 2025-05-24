@@ -148,3 +148,22 @@ class VirtualMachineMain:
                         
                     except IndexError as e:
                         raise IOError(f"[SILVERKEY VM] Memory access error: {str(e)}")
+    
+    def FindMemoryAddrInSimulationMem(self,segment_reg_val: Register16Bits, offset: int):
+        """
+        Simulate memory addressing modes
+        """
+        # Real-mode address calculation: (segment << 4) + offset
+        if not isinstance(segment_reg_val, Register16Bits):
+            raise TypeError("Invalid segment register type")
+            
+        # Get segment value from registers (using index 0 as per IStore implementation)
+        segment = self.registers[segment_reg_val][0]
+        linear_addr = (segment << 4) + offset
+            
+        # Validate address range for 1MB memory (0x00000-0xFFFFF)
+        if linear_addr < 0 or linear_addr >= len(self.memory):
+            raise IndexError(f"Calculated address 0x{linear_addr:X} out of 1MB memory range")
+        return linear_addr
+            
+   
