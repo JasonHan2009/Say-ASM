@@ -1,0 +1,2 @@
+VM_MEM_SIZE: int = 1024
+VM_REGISTER_SIZE: int = 65535
