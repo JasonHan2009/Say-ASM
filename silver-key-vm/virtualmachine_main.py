@@ -16,7 +16,10 @@ class Register16Bits(Enum):
     CF = "CF"
     CS = "CS"
     DS = "DS"
+    DH = 'DH'
     SS = "SS"
+    CL = 'CL'
+    CH = 'CH'
     ES = "ES"
     IP = "IP"
 
@@ -29,7 +32,7 @@ class VirtualMachineMain:
                 self.platform = platform
                 self.memory = bytearray(1024 * 1024)  # 1MB Physics Memory
                 current_os = platform
-
+                self.interrupt_vectors = {}
                 # 初始化文件句柄表
                 self.file_handles = {
                     0: sys.stdin,
@@ -41,7 +44,8 @@ class VirtualMachineMain:
 
                 self.memory_blocks = {
                     'free': [(0x1000, 0xEFFF)],  # 初始可用内存块 (段地址0x1000-0xFFFF)
-                    'used': []
+                    'used': [],
+                    'resident': [] 
                 }
                 self.memory_base = 0x1000 << 4  # 可用内存起始地址(0x10000)
                 self.memory_size = 0xF0000       # 可用内存大小(960KB)
@@ -344,6 +348,18 @@ class VirtualMachineMain:
                     
                  # MemoryManager
                 case 0x48:  # 分配内存
+                    free_blocks = [
+                        (start, end) for (start, end) in self.memory_blocks['free'] 
+                        if not self._is_reserved_block(start, end)
+                    ]
+
+                    def _is_reserved_block(self, start_seg, end_seg):
+                        block_start = start_seg << 4
+                        block_end = (end_seg + 1) << 4 - 1
+                        for (res_start, res_end) in self.memory_blocks['resident']:
+                            if not (block_end < res_start or block_start > res_end):
+                                return True
+                        return False
                     try:
                         # 获取请求的段落数 (1 paragraph = 16 bytes)
                         paragraphs = self.registers[Register16Bits.BX][0]
@@ -419,9 +435,135 @@ class VirtualMachineMain:
                         self.registers[Register16Bits.CF][0] = 1
                         self.registers[Register16Bits.AX][0] = 0x0007  # 内存控制块损坏
                         raise IOError(f"[SILVERKEY VM][EXCEPTION] Mem Block Broken!")
+                
+                # Process Manager
+                case 0x4c: # Exit Program
+                    # Get The Exit Code 
+                    exit_code = self.registers[Register16Bits.AX][0]  
+                    # Check the value valid
+                    if exit_code > 0x4c00:
+                        raise ValueError("[SILVERKEY VM][DEEP WARN]Invalid exit code")
+                    
+                    if exit_code == 0x4c00:
+                        self.registers[Register16Bits.AH][0] = 0x4c
+                        self.registers[Register16Bits.AL][0] = 0x00
+                    elif exit_code == 0x4c01:
+                        self.registers[Register16Bits.AH][0] = 0x4c
+                        self.registers[Register16Bits.AL][0] = 0x01
+                case 0x31: # TSR (Terminate and Stay Resident)
+                    try:
+                        # 获取参数 (AL=返回码, DX=驻留内存段落数)
+                        return_code = self.registers[Register16Bits.AL][0]
+                        paragraphs = self.registers[Register16Bits.DX][0]
+
+                        # 参数验证
+                        if paragraphs == 0 or paragraphs > 0xFFF:  # 最大支持0xFFF段落(约64KB)
+                            raise ValueError(f"[SILVERKEY VM][EXCEPTION] Invalid paragraph count: {paragraphs}")
+
+                        # 计算驻留内存大小 (paragraphs * 16 bytes)
+                        resident_size = paragraphs << 4  # 转换为字节数
+
+                        # 获取当前程序内存范围 (假设从CS:0000到当前内存尾)
+                        cs = self.registers[Register16Bits.CS][0]
+                        start_addr = cs << 4
+                        end_addr = start_addr + resident_size - 1
+
+                        # 验证内存范围
+                        if end_addr >= len(self.memory):
+                            raise IndexError(f"[SILVERKEY VM][DEEP WARN] Resident size exceeds memory limit")
+
+                        # 标记为驻留内存 (防止被后续分配)
+                        self.memory_blocks['resident'] = self.memory_blocks.get('resident', [])
+                        self.memory_blocks['resident'].append( (start_addr, end_addr) )
+
+                        # 设置返回参数 (CF=0表示成功)
+                        self.registers[Register16Bits.CF][0] = 0
+                        
+                        # 终止程序执行 (需要上层添加程序状态控制)
+                        self.program_terminated = True
+                        self.exit_code = return_code
+
+                    except (ValueError, IndexError) as e:
+                        self.registers[Register16Bits.CF][0] = 1  # 失败标志
+                        self.registers[Register16Bits.AX][0] = 0x0007  # 错误码: 内存控制块损坏
+                        raise IOError(f"[SILVERKEY VM][EXCEPTION] TSR failed: {str(e)}")
+                case 0x25:  # Set Interrupt Vector (AH=25h)
+                    try:
+                        # AL = interrupt number
+                        # DS:DX = address of interrupt handler
+                        int_num = self.registers[Register16Bits.AL][0]
+                        ds = self.registers[Register16Bits.DS][0]
+                        dx = self.registers[Register16Bits.DX][0]
+                        
+                        # Store in interrupt vector table (segment:offset format)
+                        self.interrupt_vectors[int_num] = (ds, dx)
+                        
+                        # Clear carry flag for success
+                        self.registers[Register16Bits.CF][0] = 0
+                        
+                    except Exception as e:
+                        self.registers[Register16Bits.CF][0] = 1
+                        raise IOError(f"[SILVERKEY VM][EXCEPTION] Int Vector Set Failed: {str(e)}")
+
+                case 0x35:  # Get Interrupt Vector (AH=35h)
+                    try:
+                        # AL = interrupt number
+                        # Return in ES:BX
+                        int_num = self.registers[Register16Bits.AL][0]
+                        
+                        if int_num not in self.interrupt_vectors:
+                            raise ValueError(f"[SILVERKEY VM][DEEP WARN] Invalid interrupt number: {int_num}")
+                            
+                        seg, offset = self.interrupt_vectors[int_num]
+                        self.registers[Register16Bits.ES][0] = seg
+                        self.registers[Register16Bits.BX][0] = offset
+                        self.registers[Register16Bits.CF][0] = 0
+                        
+                    except Exception as e:
+                        self.registers[Register16Bits.CF][0] = 1
+                        self.registers[Register16Bits.AX][0] = 0x0001  # Error code
+                        raise IOError(f"[SILVERKEY VM][EXCEPTION] Int Vector Get Failed: {str(e)}")
+
+                case 0x2A:  # Get System Date (AH=2Ah)
+                    from datetime import datetime
+                    try:
+                        now = datetime.now()
+                        # CX = year (1980-2099)
+                        self.registers[Register16Bits.CX][0] = now.year
+                        # DH = month (1-12)
+                        self.registers[Register16Bits.DH][0] = now.month
+                        # DL = day (1-31)
+                        self.registers[Register16Bits.DL][0] = now.day
+                        # AL = day of week (0=Sunday)
+                        self.registers[Register16Bits.AL][0] = now.weekday() + 1 % 7
+                        
+                        self.registers[Register16Bits.CF][0] = 0
+                        
+                    except Exception as e:
+                        self.registers[Register16Bits.CF][0] = 1
+                        raise IOError(f"[SILVERKEY VM][EXCEPTION] Date Get Error")
+
+                case 0x2C:  # Get System Time (AH=2Ch)
+                    from datetime import datetime
+                    try:
+                        now = datetime.now()
+                        # CH = hour (0-23)
+                        self.registers[Register16Bits.CH][0] = now.hour
+                        # CL = minute (0-59)
+                        self.registers[Register16Bits.CL][0] = now.minute
+                        # DH = second (0-59)
+                        self.registers[Register16Bits.DH][0] = now.second
+                        # DL = 1/100 seconds (0-99)
+                        self.registers[Register16Bits.DL][0] = now.microsecond // 10000
+                        
+                        self.registers[Register16Bits.CF][0] = 0
+                        
+                    except Exception as e:
+                        self.registers[Register16Bits.CF][0] = 1
+                        raise IOError(f"[SILVERKEY VM][EXCEPTION] Time Get Error")
                 case _:
                     raise ValueError(f"[SILVERKEY VM][DEEP WARN] You Stored Invalid AH Register Value")
-                
+                            
     def FindMemoryAddrInSimulationMem(self,segment_reg_val: Register16Bits, offset: int):
         """
         Simulate memory addressing modes
