@@ -39,6 +39,13 @@ class VirtualMachineMain:
                     4: self._get_console_output(current_os)
                 }
 
+                self.memory_blocks = {
+                    'free': [(0x1000, 0xEFFF)],  # 初始可用内存块 (段地址0x1000-0xFFFF)
+                    'used': []
+                }
+                self.memory_base = 0x1000 << 4  # 可用内存起始地址(0x10000)
+                self.memory_size = 0xF0000       # 可用内存大小(960KB)
+
                 if sys.platform == 'windows':
                     self.file_handles.update({
                         3: open('CON', 'r'),
@@ -334,6 +341,84 @@ class VirtualMachineMain:
                     except Exception as e:
                         self.registers[Register16Bits.AX][0] = 0x0006 | 0x8000
                         raise IOError(f"[SILVERKEY VM][DEEP WARN] File write error: {str(e)}")
+                    
+                 # MemoryManager
+                case 0x48:  # 分配内存
+                    try:
+                        # 获取请求的段落数 (1 paragraph = 16 bytes)
+                        paragraphs = self.registers[Register16Bits.BX][0]
+                        bytes_needed = paragraphs << 4
+
+                        # 参数验证
+                        if paragraphs == 0 or paragraphs > 0x1000:  # 最大4KB段落
+                            raise ValueError("[SILVERKEY VM][DEEP WARN]Invalid paragraph count")
+
+                        # 寻找足够大的空闲块
+                        allocated_segment = None
+                        for i, (start_seg, end_seg) in enumerate(self.memory_blocks['free']):
+                            block_size = (end_seg - start_seg + 1) << 4
+                            if block_size >= bytes_needed:
+                                # 分配内存
+                                allocated_segment = start_seg
+                                
+                                # 更新空闲列表
+                                remaining = (end_seg - start_seg) - (paragraphs - 1)
+                                if remaining > 0:
+                                    self.memory_blocks['free'][i] = (
+                                        start_seg + paragraphs, 
+                                        end_seg
+                                    )
+                                else:
+                                    del self.memory_blocks['free'][i]
+                                
+                                # 记录已分配块
+                                self.memory_blocks['used'].append(
+                                    (allocated_segment, allocated_segment + paragraphs - 1)
+                                )
+                                break
+
+                        if allocated_segment is None:
+                            # 内存不足
+                            self.registers[Register16Bits.CF][0] = 1
+                            self.registers[Register16Bits.AX][0] = 0x0008  # DOS错误码08h
+                            raise MemoryError("[SILVERKEY VM][DEEP WARN]Insufficient memory")
+
+                        # 设置返回参数
+                        self.registers[Register16Bits.CF][0] = 0
+                        self.registers[Register16Bits.AX][0] = allocated_segment
+
+                    except ValueError as ve:
+                        self.registers[Register16Bits.CF][0] = 1
+                        self.registers[Register16Bits.AX][0] = 0x0007  # 内存控制块损坏
+                        raise IOError(f"[SILVERKEY VM][EXCEPTION] Mem Block Broken!")
+                    except MemoryError as me:
+                        self.registers[Register16Bits.CF][0] = 1
+                        self.registers[Register16Bits.AX][0] = 0x0008  # 内存不足
+                        raise IOError(f"[SILVERKEY VM][DEEP WARN] It May Cause Memory Not Enough")
+                case 0x49: # Release Memory
+                    try:    
+                        # 获取要释放的内存段落
+                        segment = self.registers[Register16Bits.BX][0]
+                        
+                        # 参数验证
+                        if segment == 0 or segment > 0xFFFF:
+                            raise ValueError("[SILVERKEY VM][DEEP WARN]Invalid segment value")
+                        
+                        # 寻找要释放的内存段落
+                        for i,(start_seg, end_seg) in enumerate(self.memory_blocks['used']):
+                            if start_seg <= segment <= end_seg:
+                                # 释放内存
+                                self.memory_blocks['used'].pop(i)
+                                
+                                # 添加到空闲列表
+                                self.memory_blocks['free'].append((start_seg, end_seg))
+                                break
+                            else:
+                                raise ValueError("[SILVERKEY VM][DEEP WARN]Segment not found")
+                    except ValueError as ve:
+                        self.registers[Register16Bits.CF][0] = 1
+                        self.registers[Register16Bits.AX][0] = 0x0007  # 内存控制块损坏
+                        raise IOError(f"[SILVERKEY VM][EXCEPTION] Mem Block Broken!")
                 case _:
                     raise ValueError(f"[SILVERKEY VM][DEEP WARN] You Stored Invalid AH Register Value")
                 
@@ -386,4 +471,6 @@ class VirtualMachineMain:
             
         # 生成现代文件名
         return f"{name_part.strip()}.{ext_part.strip()}".rstrip('.')
-   
+
+
+
