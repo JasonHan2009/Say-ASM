@@ -1,7 +1,13 @@
 from enum import Enum
-from SAYYASMCONST import *
+from silver_key_vm.SAYYASMCONST import *
+from silver_key_vm.IDERender import Popup, RenderModule
 import sys
 
+##########
+# VirtualMachine
+# Dev JasonHan2009
+# IDEASPHERE
+############
 class Register16Bits(Enum):
     AX = "AX"
     BX = "BX"
@@ -25,8 +31,11 @@ class Register16Bits(Enum):
 
 class VirtualMachineMain:
     def __init__(self, platform):
+        self.flag = False
+
         match platform:
             case 16:
+                self.flag = False
                 self.registers = {reg: [0] * VM_REGISTER_SIZE for reg in Register16Bits}
                 self.stack_16 = [0] * VM_MEM_SIZE
                 self.platform = platform
@@ -63,13 +72,17 @@ class VirtualMachineMain:
                 
                 self.next_handle = 5
             case _:
-                raise NotImplementedError("Unsupported Asm Platform!")
-
+                self.flag = True
+                
     def write_memory(self, address: int, data: bytes):
         """Write Binary Into Simulation Memory"""
         for offset, byte in enumerate(data):
             if address + offset >= len(self.memory):
-                raise IndexError(f"Memory address 0x{address + offset:X} out of range")
+                RenderModule(
+                    "POTENTIAL",
+                    "white",
+                    f"You Are Trying To Write Into Memory 0x{address + offset:X} Out Of Range"    
+                ).render()
             self.memory[address + offset] = byte
 
     def IStore(self, reg: Register16Bits, index: int, value: int):
@@ -78,10 +91,17 @@ class VirtualMachineMain:
         """
         if self.platform == 16:
             if index < 0 or index >= VM_REGISTER_SIZE:
-                raise IndexError(f"Register index {index} out of range")
+                RenderModule(
+                    "POTENTIAL",
+                    "white",
+                    f"Register index {index} out of range"
+                ).render()
             if not (0 <= value <= 0xFFFF):
-                raise ValueError(f"Value {value} exceeds 16-bit range")
-                
+                RenderModule(
+                    "POTENTIAL",
+                    "white",
+                    f"Value {value} exceeds 16-bit range"
+                ).render()                
             self.registers[reg][index] = value
     
     def IPush(self, reg: Register16Bits, index: int, value: int):
@@ -90,10 +110,17 @@ class VirtualMachineMain:
         """
         if self.platform == 16:
             if index < 0 or index >= VM_MEM_SIZE:
-                raise IndexError(f"Stack index {index} out of range")
+                RenderModule(
+                    "POTENTIAL",
+                    "white",
+                    f"Stack index {index} out of range"
+                ).render()
             if not (0 <= value <= 0xFFFF):
-                raise ValueError(f"Value {value} exceeds 16-bit range")
-            
+                RenderModule(
+                    "POTENTIAL",
+                    "white",
+                    f"Value {value} exceeds 16-bit range"
+                ).render()
             self.stack_16[index] = value
     
     def IPop(self, reg: Register16Bits, index: int):
@@ -102,8 +129,11 @@ class VirtualMachineMain:
         """
         if self.platform == 16:
             if index < 0 or index >= VM_MEM_SIZE:
-                raise IndexError(f"Stack index {index} out of range")
-            
+                RenderModule(
+                    "POTENTIAL",
+                    "white",
+                    f"Stack index {index} out of range"
+                ).render()
             return self.stack_16[index]
     
     def IReset(self, reg : Register16Bits, index: int):
@@ -112,7 +142,11 @@ class VirtualMachineMain:
         """
         if self.platform == 16:
             if index < 0 or index >= VM_MEM_SIZE:
-                raise IndexError(f"Stack index {index} out of range")
+                RenderModule(
+                    "POTENTIAL",
+                    "white",
+                    f"Stack index {index} out of range"
+                ).render()
             
             self.stack_16[index] = 0
 
@@ -124,6 +158,8 @@ class VirtualMachineMain:
         if self.platform == 16: 
             AHVAL = self.registers[Register16Bits.AH][0]
             match AHVAL:
+
+                # IO(Console)
                 case 0x01:  # KeyBoard Input(With Echo)
                     char : str = input("")[0]
                     # Get Single Character And Print Its ASCII Value
@@ -134,17 +170,23 @@ class VirtualMachineMain:
                         print(self.IPop(Register16Bits.AL, 0))
                     else:
                         self.IReset(Register16Bits.AL, 0)
-                        raise IOError(
-                                        "[SILVERKEY VM][DEEP WARN]It May Caused Segement Fault Or Other Questions In Real Env, Please Check Your Code" +
-                                        "May Its AL Register Caused"
-                                      )
+                        RenderModule(
+                            "POTENTIAL",
+                            "white",
+                            "It May Caused Segement Fault Or Other Questions In Real Env, Please Check Your Code"
+                        ).render()
+                        
                 case 0x02:
                     DLVAL = self.registers[Register16Bits.DL][0]
                     if 0 <= DLVAL <= 0xFF:
                         print(chr(DLVAL), end='', flush=True) 
                     else:
-                        raise ValueError(f"[SILVERKEY VM][EXCEPTION]Invalid ASCII value in DL: 0x{DLVAL:X}")
-
+                        RenderModule(
+                            "EXCEPTION",
+                            "white",
+                            f"Invalid ASCII value in DL: 0x{DLVAL:X}"
+                        ).render()
+                          
                 case 0x08: # KeyBoard Input Without Echo
                     char : str = input("")[0]
                     # Get Single Character With Out Echo
@@ -172,14 +214,22 @@ class VirtualMachineMain:
                                 break
                             output.append(char)
                             if linear_addr >= len(self.memory):
-                                raise IndexError("[SILVERKEY VM][VM-SELF EXCEPTION]String exceeds memory bounds")
-
+                                RenderModule(
+                                    "POTENTIAL",
+                                    "white",
+                                    f"String exceeds memory bounds"
+                                ).render()
+                          
                         # 转换并输出字符串
                         decoded_str = bytes(output).decode('ascii', errors='replace')
                         print(decoded_str, end='')
                         
                     except IndexError as e:
-                        raise IOError(f"[SILVERKEY VM][DEEP WARN] Memory access error: {str(e)}")
+                        RenderModule(
+                            "POTENTIAL",
+                            "white",
+                            f"Memory access error: {str(e)}"
+                        ).render()
                 
                 # File Operand
                 # Dev Jason
@@ -202,7 +252,11 @@ class VirtualMachineMain:
                                 break
                             filename_bytes.append(char)
                             if filename_addr >= len(self.memory):
-                                raise IndexError("Filename exceeds memory bounds")
+                                RenderModule(
+                                    "POTENTIAL",
+                                    "white",
+                                    f"Filename exceeds memory bounds"
+                                ).render()
                                 
                         # 转换DOS 8.3格式文件名
                         dos_name = bytes(filename_bytes).decode('ascii', errors='replace')
@@ -215,8 +269,11 @@ class VirtualMachineMain:
                             2: 'r+b'  # 读/写
                         }
                         if access_code not in mode_mapping:
-                            raise ValueError(f"Invalid access code: 0x{access_code:X}")
-                            
+                            RenderModule(
+                                "POTENTIAL",
+                                "white",
+                                f"Invalid access code: {access_code}"
+                            ).render()              
                         # 打开文件并分配句柄
                         try:
                             file_obj = open(modern_name, mode_mapping[access_code])
@@ -230,18 +287,29 @@ class VirtualMachineMain:
                         except IOError as e:
                             # 失败设置错误码 (DOS错误码2=文件未找到)
                             self.registers[Register16Bits.AX][0] = 0x0002
-                            raise IOError(f"[SILVERKEY VM][DEEP WARN] May File Its Not On Your PC: {str(e)}")
+                            RenderModule(
+                                "SUGGESTION",
+                                "white",
+                                f"May File Its Not On Your PC: {str(e)}"
+                            ).render()
 
                     except IndexError as e:
-                        raise IOError(f"[SILVERKEY VM][DEEP WARN] Memory access error: {str(e)}")
+                        RenderModule(
+                            "POTENTIAL",
+                            "white",
+                            f"Memory access error: {str(e)}"
+                        ).render()
                 case 0x3e:  # 关闭文件
                     try:
                         handle = self.registers[Register16Bits.BX][0]
                         
                         # 检查预定义句柄(0-4)是否允许关闭
                         if handle < 5:
-                            raise PermissionError("[SILVERKEY VM][DEEP WARN]Cannot close standard handles")
-
+                            RenderModule(
+                                "SUGGESTION",
+                                "white",
+                                "Cannot close standard handles"
+                            ).render()
                         if handle in self.file_handles:
                             # 执行关闭操作
                             self.file_handles[handle].close()
@@ -252,15 +320,27 @@ class VirtualMachineMain:
                         else:
                             # 失败状态：CF=1 + 错误码06h (无效句柄)
                             self.registers[Register16Bits.AX][0] = 0x0006 | 0x8000  # 最高位1表示错误
-                            raise ValueError(f"[SILVERKEY VM][ERROR]Invalid file handle: {handle}")
+                            RenderModule(
+                                "EXCEPTION",
+                                "white",
+                                f"Invalid file handle: {handle}"
+                            ).render()
 
                     except PermissionError as pe:
                         # DOS不允许关闭标准设备
                         self.registers[Register16Bits.AX][0] = 0x0001 | 0x8000  # 错误码01h
-                        raise IOError(f"[SILVERKEY VM][ERROR] {str(pe)}")
+                        RenderModule(
+                                "EXCEPTION",
+                                "white",
+                                f"Invalid file handle: {str(pe)}"
+                        ).render()
                     except Exception as e:  
                         self.registers[Register16Bits.AX][0] = 0x0006 | 0x8000  # 错误码06h
-                        raise IOError(f"[SILVERKEY VM][DEEPWARN] May File Its Not On Your PC {str(e)}")
+                        RenderModule(
+                                "EXCEPTION",
+                                "white",
+                                f"May File Its Not On Your PC {str(e)}"
+                        ).render()
                 case 0x3F:  # 读取文件
                     try:
                         # 获取参数
@@ -270,14 +350,25 @@ class VirtualMachineMain:
 
                         # 参数验证
                         if bytes_to_read > 65535:
-                            raise ValueError("[SILVERKEY VM][EXCEPTION] CX value exceeds 16-bit range")
+                            RenderModule(
+                                "EXCEPTION",
+                                "white",
+                                "CX value exceeds 16-bit range"
+                            ).render()
                         if buffer_addr + bytes_to_read > len(self.memory):
-                            raise IndexError("[SILVERKEY VM][DEEP WARN]Buffer exceeds memory bounds")
-
+                            RenderModule(
+                                "EXCEPTION",
+                                "white",
+                                "Buffer address exceeds memory range"
+                            ).render()
                         # 检查文件句柄有效性
                         if handle not in self.file_handles:
                             self.registers[Register16Bits.AX][0] = 0x0006 | 0x8000  # 无效句柄
-                            raise IOError(f"[SILVERKEY VM][EXCEPTION]Invalid file handle: {handle}")
+                            RenderModule(
+                                "EXCEPTION",
+                                "white",
+                                f"Invalid file handle: {handle}"
+                            ).render()
 
                         # 执行读取操作
                         file_obj = self.file_handles[handle]
@@ -299,13 +390,25 @@ class VirtualMachineMain:
 
                     except ValueError as ve:
                         self.registers[Register16Bits.AX][0] = 0x0001 | 0x8000  # 无效参数
-                        raise IOError(f"[SILVERKEY VM][EXCEPTION] Invalid ARG!")
+                        RenderModule(
+                                "EXCEPTION",
+                                "white",
+                                f"Invalid argument: {str(ve)}"
+                        ).render()
                     except IndexError as ie:
                         self.registers[Register16Bits.AX][0] = 0x0005 | 0x8000  # 内存越界
-                        raise IOError(f"[SILVERKEY VM][DEEP WARN] It May Cause Memory Execced")
+                        RenderModule(
+                                "EXCEPTION",
+                                "white",
+                                f"Memory access error: {str(ie)}"
+                        ).render()
                     except Exception as e:
                         self.registers[Register16Bits.AX][0] = 0x0006 | 0x8000  # 通用错误
-                        raise IOError(f"[SILVERKEY VM][DEEP WARN] File read error: {str(e)}")
+                        RenderModule(
+                                "EXCEPTION",
+                                "white",
+                                f"[SILVERKEY VM][DEEP WARN] File read error: {str(e)}"
+                        ).render()
                 case 0x40: # Write File Service In Dos
                     try:
                         # Get Args
@@ -314,16 +417,29 @@ class VirtualMachineMain:
                         buffer_addr = (self.registers[Register16Bits.DS][0] << 4) + self.registers[Register16Bits.DX][0]
                           # 参数验证
                         if bytes_to_write > 65535:
-                            raise ValueError("[SILVERKEY VM][EXCEPTION] CX value exceeds 16-bit range")
+                            RenderModule(
+                                "EXCEPTION",
+                                "white",
+                                "CX value exceeds 16-bit range"
+                            ).render()
                         if buffer_addr + bytes_to_write > len(self.memory):
-                            raise IndexError("[SILVERKEY VM][DEEP WARN]Buffer exceeds memory bounds")
-
+                            RenderModule(
+                                "EXCEPTION",
+                                "white",
+                                "Buffer address exceeds memory range"
+                            ).render()
+                            
                         # 检查文件句柄有效性
                         if handle not in self.file_handles:
-                            self.registers[Register16Bits.AX][0] = 0x0006 | 0x8000  # 无效句柄
-                            raise IOError(f"[SILVERKEY VM][EXCEPTION]Invalid file handle: {handle}")
-                        
-                                        # 从内存读取要写入的数据
+                            self.registers[Register16Bits.AX][0] = 0x0006 | 0x8000 # 无效句柄
+                            RenderModule(
+                                "EXCEPTION",
+                                "white",
+                                f"Invalid file handle: {handle}"
+                            ).render()
+                            
+
+                        # 从内存读取要写入的数据
                         data_to_write = bytes(self.memory[buffer_addr : buffer_addr + bytes_to_write])
                         
                         # 执行写入操作
@@ -338,13 +454,25 @@ class VirtualMachineMain:
 
                     except ValueError as ve:
                         self.registers[Register16Bits.AX][0] = 0x0001 | 0x8000
-                        raise IOError(f"[SILVERKEY VM][EXCEPTION] {str(ve)}")
+                        RenderModule(
+                                "EXCEPTION",
+                                "white",
+                                f"Invalid argument: {str(ve)}"
+                        ).render()
                     except IOError as ie:
                         self.registers[Register16Bits.AX][0] = 0x0005 | 0x8000
-                        raise IOError(f"[SILVERKEY VM][DEEP WARN] Write failed: {str(ie)}")
+                        RenderModule(
+                                "EXCEPTION",
+                                "white",
+                                f"Write failed: {str(ie)}"
+                        ).render()
                     except Exception as e:
                         self.registers[Register16Bits.AX][0] = 0x0006 | 0x8000
-                        raise IOError(f"[SILVERKEY VM][DEEP WARN] File write error: {str(e)}")
+                        RenderModule(
+                                "EXCEPTION",
+                                "white",
+                                f"File write error: {str(e)}"
+                        ).render()
                     
                  # MemoryManager
                 case 0x48:  # 分配内存
@@ -367,7 +495,11 @@ class VirtualMachineMain:
 
                         # 参数验证
                         if paragraphs == 0 or paragraphs > 0x1000:  # 最大4KB段落
-                            raise ValueError("[SILVERKEY VM][DEEP WARN]Invalid paragraph count")
+                            RenderModule(
+                                "EXCEPTION",
+                                "white",
+                                "Invalid paragraph count"
+                            ).render()
 
                         # 寻找足够大的空闲块
                         allocated_segment = None
@@ -397,7 +529,11 @@ class VirtualMachineMain:
                             # 内存不足
                             self.registers[Register16Bits.CF][0] = 1
                             self.registers[Register16Bits.AX][0] = 0x0008  # DOS错误码08h
-                            raise MemoryError("[SILVERKEY VM][DEEP WARN]Insufficient memory")
+                            RenderModule(
+                                "EXCEPTION",
+                                "white",
+                                f"Insufficient memory"
+                            ).render()
 
                         # 设置返回参数
                         self.registers[Register16Bits.CF][0] = 0
@@ -406,11 +542,19 @@ class VirtualMachineMain:
                     except ValueError as ve:
                         self.registers[Register16Bits.CF][0] = 1
                         self.registers[Register16Bits.AX][0] = 0x0007  # 内存控制块损坏
-                        raise IOError(f"[SILVERKEY VM][EXCEPTION] Mem Block Broken!")
+                        RenderModule(
+                                "EXCEPTION",
+                                "white",
+                                f"Mem Block Broken!"
+                        ).render()
                     except MemoryError as me:
                         self.registers[Register16Bits.CF][0] = 1
                         self.registers[Register16Bits.AX][0] = 0x0008  # 内存不足
-                        raise IOError(f"[SILVERKEY VM][DEEP WARN] It May Cause Memory Not Enough")
+                        RenderModule(
+                                "EXCEPTION",
+                                "white",
+                                f"It May Cause Memory Not Enough"
+                        ).render()
                 case 0x49: # Release Memory
                     try:    
                         # 获取要释放的内存段落
@@ -418,7 +562,11 @@ class VirtualMachineMain:
                         
                         # 参数验证
                         if segment == 0 or segment > 0xFFFF:
-                            raise ValueError("[SILVERKEY VM][DEEP WARN]Invalid segment value")
+                            RenderModule(
+                                    "EXCEPTION",
+                                    "white",
+                                    f"Invalid segment value"
+                            ).render()
                         
                         # 寻找要释放的内存段落
                         for i,(start_seg, end_seg) in enumerate(self.memory_blocks['used']):
@@ -430,19 +578,31 @@ class VirtualMachineMain:
                                 self.memory_blocks['free'].append((start_seg, end_seg))
                                 break
                             else:
-                                raise ValueError("[SILVERKEY VM][DEEP WARN]Segment not found")
+                                RenderModule(
+                                        "EXCEPTION",
+                                        "white",
+                                        f"Segment not found"
+                                ).render()
                     except ValueError as ve:
                         self.registers[Register16Bits.CF][0] = 1
                         self.registers[Register16Bits.AX][0] = 0x0007  # 内存控制块损坏
-                        raise IOError(f"[SILVERKEY VM][EXCEPTION] Mem Block Broken!")
-                
+                        RenderModule(
+                                "EXCEPTION",
+                                "white",
+                                f"Mem Block Broken!"
+                        ).render()
+
                 # Process Manager
                 case 0x4c: # Exit Program
                     # Get The Exit Code 
                     exit_code = self.registers[Register16Bits.AX][0]  
                     # Check the value valid
                     if exit_code > 0x4c00:
-                        raise ValueError("[SILVERKEY VM][DEEP WARN]Invalid exit code")
+                        RenderModule(
+                            "EXCEPTION",
+                            "white",
+                            f"Invalid Exit Code"
+                        ).render()
                     
                     if exit_code == 0x4c00:
                         self.registers[Register16Bits.AH][0] = 0x4c
@@ -458,7 +618,11 @@ class VirtualMachineMain:
 
                         # 参数验证
                         if paragraphs == 0 or paragraphs > 0xFFF:  # 最大支持0xFFF段落(约64KB)
-                            raise ValueError(f"[SILVERKEY VM][EXCEPTION] Invalid paragraph count: {paragraphs}")
+                            RenderModule(
+                                "EXCEPTION",
+                                "white",
+                                f"Invalid paragraph count: {paragraphs}"
+                        ).render()
 
                         # 计算驻留内存大小 (paragraphs * 16 bytes)
                         resident_size = paragraphs << 4  # 转换为字节数
@@ -470,7 +634,11 @@ class VirtualMachineMain:
 
                         # 验证内存范围
                         if end_addr >= len(self.memory):
-                            raise IndexError(f"[SILVERKEY VM][DEEP WARN] Resident size exceeds memory limit")
+                            RenderModule(
+                                "EXCEPTION",
+                                "white",
+                                f"Resident size exceeds memory limit"
+                            ).render()
 
                         # 标记为驻留内存 (防止被后续分配)
                         self.memory_blocks['resident'] = self.memory_blocks.get('resident', [])
@@ -486,7 +654,11 @@ class VirtualMachineMain:
                     except (ValueError, IndexError) as e:
                         self.registers[Register16Bits.CF][0] = 1  # 失败标志
                         self.registers[Register16Bits.AX][0] = 0x0007  # 错误码: 内存控制块损坏
-                        raise IOError(f"[SILVERKEY VM][EXCEPTION] TSR failed: {str(e)}")
+                        RenderModule(
+                            "EXCEPTION",
+                            "white",
+                            f"TSR failed: {str(e)}"
+                        ).render()
                 case 0x25:  # Set Interrupt Vector (AH=25h)
                     try:
                         # AL = interrupt number
@@ -503,7 +675,11 @@ class VirtualMachineMain:
                         
                     except Exception as e:
                         self.registers[Register16Bits.CF][0] = 1
-                        raise IOError(f"[SILVERKEY VM][EXCEPTION] Int Vector Set Failed: {str(e)}")
+                        RenderModule(
+                            "EXCEPTION",
+                            "white",
+                            f"Int Vector Set Failed: {str(e)}"
+                        ).render()
 
                 case 0x35:  # Get Interrupt Vector (AH=35h)
                     try:
@@ -512,8 +688,11 @@ class VirtualMachineMain:
                         int_num = self.registers[Register16Bits.AL][0]
                         
                         if int_num not in self.interrupt_vectors:
-                            raise ValueError(f"[SILVERKEY VM][DEEP WARN] Invalid interrupt number: {int_num}")
-                            
+                            RenderModule(
+                                "EXCEPTION",
+                                "white",
+                                f"Int Vector Not Found: {int_num}"
+                            ).render()
                         seg, offset = self.interrupt_vectors[int_num]
                         self.registers[Register16Bits.ES][0] = seg
                         self.registers[Register16Bits.BX][0] = offset
@@ -522,7 +701,11 @@ class VirtualMachineMain:
                     except Exception as e:
                         self.registers[Register16Bits.CF][0] = 1
                         self.registers[Register16Bits.AX][0] = 0x0001  # Error code
-                        raise IOError(f"[SILVERKEY VM][EXCEPTION] Int Vector Get Failed: {str(e)}")
+                        RenderModule(
+                            "EXCEPTION",
+                            "white",
+                            f"Int Vector Get Failed: {str(e)}"
+                        ).render()
 
                 case 0x2A:  # Get System Date (AH=2Ah)
                     from datetime import datetime
@@ -541,7 +724,11 @@ class VirtualMachineMain:
                         
                     except Exception as e:
                         self.registers[Register16Bits.CF][0] = 1
-                        raise IOError(f"[SILVERKEY VM][EXCEPTION] Date Get Error")
+                        RenderModule(
+                            "EXCEPTION",
+                            "white",
+                            f"Date Get Failed: {str(e)}"
+                        ).render()
 
                 case 0x2C:  # Get System Time (AH=2Ch)
                     from datetime import datetime
@@ -560,9 +747,17 @@ class VirtualMachineMain:
                         
                     except Exception as e:
                         self.registers[Register16Bits.CF][0] = 1
-                        raise IOError(f"[SILVERKEY VM][EXCEPTION] Time Get Error")
+                        RenderModule(
+                            "EXCEPTION",
+                            "white",
+                            f"Time Get Failed: {str(e)}"
+                        ).render()
                 case _:
-                    raise ValueError(f"[SILVERKEY VM][DEEP WARN] You Stored Invalid AH Register Value")
+                    RenderModule(
+                        "EXCEPTION",
+                        "white",
+                        f"Invalid AH Register Value: {self.registers[Register16Bits.AH][0]}"
+                    ).render()
                             
     def FindMemoryAddrInSimulationMem(self,segment_reg_val: Register16Bits, offset: int):
         """
@@ -613,6 +808,5 @@ class VirtualMachineMain:
             
         # 生成现代文件名
         return f"{name_part.strip()}.{ext_part.strip()}".rstrip('.')
-
-
-
+    
+    

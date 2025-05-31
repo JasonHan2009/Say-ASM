@@ -1,0 +1,1 @@
+python -m silver_key_vm.nasm.parser
